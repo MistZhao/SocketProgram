@@ -38,18 +38,24 @@ namespace TCPClient
             Console.ReadKey();
         }
 
+        /// <summary>
+        /// 定时向服务器发送内容，格式为：长度+数据（时间+"  "+机器名+" "+IP+"  "+"test"）
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
         static void objSendTimer_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
         {
             List<byte> liSendMsg = new List<byte>();
             string strSendMsg = DateTime.Now +" " + Dns.GetHostName() + " " + strIp + " " + "test";
             byte[] byMsg = Encoding.Default.GetBytes(strSendMsg);
 
-            StuContentHeader stuHeaderSize = new StuContentHeader();
-            stuHeaderSize.iHeaderSize = byMsg.Length;
-            Int32 iSize = IPAddress.HostToNetworkOrder(stuHeaderSize.iHeaderSize);
+            StuContentHeader stuHeaderSize = new StuContentHeader();// 使用结构体作为协议头
+            stuHeaderSize.iHeaderSize = byMsg.Length;// 获取数据的长度
+            Int32 iSize = IPAddress.HostToNetworkOrder(stuHeaderSize.iHeaderSize);// 将数据从本地字节序转换为网络字节序（字符串不需要此操作）
+
             byte[] bySendSize = BitConverter.GetBytes(iSize);
-            liSendMsg.AddRange(bySendSize);
-            liSendMsg.AddRange(byMsg);
+            liSendMsg.AddRange(bySendSize);// 添加数据的长度
+            liSendMsg.AddRange(byMsg);// 添加数据
 
             objClient.Send(liSendMsg.ToArray());
         }
