@@ -55,9 +55,15 @@ namespace TCPServer
 
             while(true)
             {
-                System.Threading.Thread.Sleep(30000);// 延时接收，触发“粘包”现象
+                //System.Threading.Thread.Sleep(30000);// 延时接收，触发“粘包”现象
                 byte[] byMsg = new byte[1024];
                 Int32 iLen = objClient.Receive(byMsg);
+                if(iLen<=0) // 客户端主动关闭socket时会发送一个空的数组
+                {
+                    Console.WriteLine("客户端退出！");
+                    objClient.Close();
+                    return;
+                }
 
                 // 解析收到的数据
                 while (true)
@@ -98,6 +104,10 @@ namespace TCPServer
                         liRecList.Clear();
                         liSizeList.Clear();
                         Console.WriteLine(strMsg);
+                        if(strMsg=="FF FF FF FF")
+                        {
+                            SendMsg("OK");
+                        }
                     }
                     else
                     {
@@ -109,6 +119,21 @@ namespace TCPServer
                     }
                 }
             }
+        }
+        static void SendMsg(string strSendMsg)
+        {
+            List<byte> liSendMsg = new List<byte>();
+            byte[] byMsg = Encoding.Default.GetBytes(strSendMsg);
+
+            StuContentHeader stuHeaderSize = new StuContentHeader();// 使用结构体作为协议头
+            stuHeaderSize.iHeaderSize = byMsg.Length;// 获取数据的长度
+            Int32 iSize = IPAddress.HostToNetworkOrder(stuHeaderSize.iHeaderSize);// 将数据从本地字节序转换为网络字节序（字符串不需要此操作）
+
+            byte[] bySendSize = BitConverter.GetBytes(iSize);
+            liSendMsg.AddRange(bySendSize);// 添加数据的长度
+            liSendMsg.AddRange(byMsg);// 添加数据
+
+            objServer.Send(liSendMsg.ToArray());
         }
     }
 }
