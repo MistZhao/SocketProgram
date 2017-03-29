@@ -53,6 +53,9 @@ namespace TCPServer
             List<byte> liRecList = new List<byte>();// 存储接收到的报文数据
             List<byte> liSizeList = new List<byte>();// 存储接收到的数据长度
 
+            Queue<string> objSendQueue = new Queue<string>();// 用于发送
+            
+
             while(true)
             {
                 //System.Threading.Thread.Sleep(30000);// 延时接收，触发“粘包”现象
