@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using ContentHeader;
 
 namespace TCPServer
@@ -13,6 +14,7 @@ namespace TCPServer
     class Program
     {
         static Socket objServer;
+        static object objLock = new object();
 
         static void Main(string[] args)
         {
@@ -20,9 +22,11 @@ namespace TCPServer
             IPEndPoint objIpep = new IPEndPoint(IPAddress.Parse("9.5.3.156"),9000);
             objServer.Bind(objIpep);
             objServer.Listen(2);
+
             BackgroundWorker bgwListen = new BackgroundWorker();
             bgwListen.DoWork += bgwListen_DoWork;
             bgwListen.RunWorkerAsync();
+
             Console.WriteLine("Waiting for connections...");
             Console.WriteLine(Marshal.SizeOf(typeof(StuTest)));
             Console.WriteLine(Marshal.SizeOf(typeof(StuTest1)));
@@ -38,33 +42,35 @@ namespace TCPServer
                 objConnection = objServer.Accept();
                 IPEndPoint objIpep = (IPEndPoint)objConnection.RemoteEndPoint;
                 Console.WriteLine(string.Format("客户端{0}:{1}连接成功！",objIpep.Address.ToString(),objIpep.Port));
+
+                CClientObject objClientObject = new CClientObject();
+                objClientObject.SetSocket(objConnection);
+
                 BackgroundWorker bgwRec = new BackgroundWorker();
                 bgwRec.DoWork += bgwRec_DoWork;
-                bgwRec.RunWorkerAsync(objConnection);
+                bgwRec.RunWorkerAsync(objClientObject);
             }
         }
 
         static void bgwRec_DoWork(object sender, DoWorkEventArgs e)
         {
-            StringBuilder strSb = new StringBuilder();
-            Socket objClient = (Socket)e.Argument;
+            CClientObject objClientObject = (CClientObject)e.Argument;
+            Socket objClient = objClientObject.GetSocket();
+
             int iStuSize = Marshal.SizeOf(typeof(StuContentHeader));// 获取协议头的大小
             Int32 iStartIndex = 0;// 数组中的当前位置，动态计算得出
             List<byte> liRecList = new List<byte>();// 存储接收到的报文数据
-            List<byte> liSizeList = new List<byte>();// 存储接收到的数据长度
-
-            Queue<string> objSendQueue = new Queue<string>();// 用于发送
-            
+            List<byte> liSizeList = new List<byte>();// 存储接收到的数据长度            
 
             while(true)
             {
                 //System.Threading.Thread.Sleep(30000);// 延时接收，触发“粘包”现象
                 byte[] byMsg = new byte[1024];
                 Int32 iLen = objClient.Receive(byMsg);
-                if(iLen<=0) // 客户端主动关闭socket时会发送一个空的数组
+                if (iLen <= 0) // 客户端主动关闭socket时会发送一个空的数组，需要处理被动关闭的情况，因为被动关闭时，如果不close，则会导致服务器产生很多close_wait的状态
                 {
                     Console.WriteLine("客户端退出！");
-                    objClient.Close();
+                    objClient.Close();// 被动关闭时，如果不close，则会导致服务器产生很多close_wait的状态
                     return;
                 }
 
@@ -109,7 +115,9 @@ namespace TCPServer
                         Console.WriteLine(strMsg);
                         if(strMsg=="FF FF FF FF")
                         {
-                            SendMsg("OK");
+                           // objClientObject.AddSendMsg("OK!");
+                            Thread objSendMsg = new Thread(new ParameterizedThreadStart(SendMsg));
+                            objSendMsg.Start((CClientObject)objClientObject);
                         }
                     }
                     else
@@ -123,20 +131,29 @@ namespace TCPServer
                 }
             }
         }
-        static void SendMsg(string strSendMsg)
+        static void SendMsg(object obj)
         {
-            List<byte> liSendMsg = new List<byte>();
-            byte[] byMsg = Encoding.Default.GetBytes(strSendMsg);
+            lock (objLock)
+            {
+                CClientObject objClientObject = (CClientObject)obj;
+                Socket objClient = objClientObject.GetSocket();
+                Queue<string> objSendQueue = objClientObject.GetQueue();
+                if (objSendQueue.Count > 0&&objClient.Connected)
+                {
+                    List<byte> liSendMsg = new List<byte>();
+                    byte[] byMsg = Encoding.Default.GetBytes(objSendQueue.Dequeue());
 
-            StuContentHeader stuHeaderSize = new StuContentHeader();// 使用结构体作为协议头
-            stuHeaderSize.iHeaderSize = byMsg.Length;// 获取数据的长度
-            Int32 iSize = IPAddress.HostToNetworkOrder(stuHeaderSize.iHeaderSize);// 将数据从本地字节序转换为网络字节序（字符串不需要此操作）
+                    StuContentHeader stuHeaderSize = new StuContentHeader();// 使用结构体作为协议头
+                    stuHeaderSize.iHeaderSize = byMsg.Length;// 获取数据的长度
+                    Int32 iSize = IPAddress.HostToNetworkOrder(stuHeaderSize.iHeaderSize);// 将数据从本地字节序转换为网络字节序（字符串不需要此操作）
 
-            byte[] bySendSize = BitConverter.GetBytes(iSize);
-            liSendMsg.AddRange(bySendSize);// 添加数据的长度
-            liSendMsg.AddRange(byMsg);// 添加数据
+                    byte[] bySendSize = BitConverter.GetBytes(iSize);
+                    liSendMsg.AddRange(bySendSize);// 添加数据的长度
+                    liSendMsg.AddRange(byMsg);// 添加数据
 
-            objServer.Send(liSendMsg.ToArray());
+                    objClient.Send(liSendMsg.ToArray());
+                }
+            }
         }
     }
 }
